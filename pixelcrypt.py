@@ -1,107 +1,109 @@
 from PIL import Image
-import piexif
+import os
 
-def hide_text(image_path, text, output_path):
+
+def embed_text(image_path, text, output_path):
     """
-    Hide text in an image while preserving metadata (if present).
+    Embed text into an image using a robust steganography method.
     """
     try:
         # Open the image
-        img = Image.open(image_path)
-        img = img.convert("RGB")  # Ensure the image is in RGB mode
-        
-        # Load EXIF data, if available
-        exif_data = img.info.get("exif", None)
-        if exif_data:
-            exif_data = piexif.load(exif_data)
-        else:
-            exif_data = {}  # Handle cases with no EXIF metadata
-
-        # Convert text to binary and add a delimiter to mark the end of the text
-        binary_text = ''.join(format(ord(char), '08b') for char in text) + '11111111'  # End marker
-
-        # Hide the binary text in the LSB of the image's pixel values
+        img = Image.open(image_path).convert("RGB")
         pixels = list(img.getdata())
+        
+        # Convert text to binary with a special delimiter
+        binary_text = ''.join(format(ord(char), '08b') for char in text) + '00000000'  # Null byte as end marker
+        
+        # Verify capacity
+        if len(binary_text) > len(pixels) * 3:
+            raise ValueError("Text is too long to fit in the selected image.")
+        
+        # Embed binary data into the LSB of image pixels
         new_pixels = []
         idx = 0
         for pixel in pixels:
             r, g, b = pixel
             if idx < len(binary_text):
-                r = (r & ~1) | int(binary_text[idx])  # Modify LSB of red channel
+                r = (r & ~1) | int(binary_text[idx])
                 idx += 1
             if idx < len(binary_text):
-                g = (g & ~1) | int(binary_text[idx])  # Modify LSB of green channel
+                g = (g & ~1) | int(binary_text[idx])
                 idx += 1
             if idx < len(binary_text):
-                b = (b & ~1) | int(binary_text[idx])  # Modify LSB of blue channel
+                b = (b & ~1) | int(binary_text[idx])
                 idx += 1
             new_pixels.append((r, g, b))
-
-        # Add remaining pixels if text is shorter than image capacity
-        new_pixels.extend(pixels[len(new_pixels):])
-
-        # Save the new image with the modified pixels and original metadata
-        img.putdata(new_pixels)
-        if exif_data:
-            exif_bytes = piexif.dump(exif_data)
-            img.save(output_path, "jpeg", exif=exif_bytes)
-        else:
-            img.save(output_path, "jpeg")
         
-        print(f"Text successfully hidden in '{output_path}' with metadata preserved.")
+        # Handle remaining pixels (if text is shorter than capacity)
+        new_pixels.extend(pixels[len(new_pixels):])
+        
+        # Save the image with embedded text
+        img.putdata(new_pixels)
+        img.save(output_path, "PNG")  # PNG preserves pixel values better than JPEG
+        print(f"Text successfully embedded into '{output_path}'.")
     except Exception as e:
-        print(f"Error hiding text: {e}")
+        print(f"Error during embedding: {e}")
+
 
 def extract_text(image_path):
     """
-    Extract hidden text from an image.
+    Extract text embedded in an image using a robust steganography method.
     """
     try:
         # Open the image
-        img = Image.open(image_path)
+        img = Image.open(image_path).convert("RGB")
         pixels = list(img.getdata())
-
-        # Extract binary data from the LSB of the pixel values
+        
+        # Extract binary data from the LSB of pixel values
         binary_text = ""
         for pixel in pixels:
             r, g, b = pixel
             binary_text += str(r & 1)
             binary_text += str(g & 1)
             binary_text += str(b & 1)
-
-        # Split binary data into 8-bit chunks and convert to characters
-        chars = [binary_text[i:i+8] for i in range(0, len(binary_text), 8)]
+        
+        # Group binary data into bytes and decode
+        chars = [binary_text[i:i + 8] for i in range(0, len(binary_text), 8)]
         message = ""
         for char in chars:
-            if char == '11111111':  # Stop at the delimiter
+            if char == '00000000':  # Stop at the null byte (delimiter)
                 break
             message += chr(int(char, 2))
-
-        print("Hidden message:", message)
+        
+        print("Extracted hidden text:", message)
+        return message
     except Exception as e:
-        print(f"Error extracting text: {e}")
+        print(f"Error during extraction: {e}")
+
 
 def main():
     """
-    Main function to provide a menu for user interaction.
+    Main function to interact with the user.
     """
     print("Simple Steganography Tool")
-    print("1. Hide text in an image")
-    print("2. Extract hidden text from an image")
-    choice = input("Enter your choice (1 or 2): ")
-
+    print("1. Embed text in an image")
+    print("2. Extract text from an image")
+    choice = input("Choose an option (1/2): ").strip()
+    
     if choice == "1":
-        # Hide text
-        image_path = input("Enter the path to the image: ")
-        text = input("Enter the text to hide: ")
-        output_path = input("Enter the output image path (e.g., output_image.jpg): ")
-        hide_text(image_path, text, output_path)
+        # Embed text
+        image_path = input("Enter the path to the source image: ").strip()
+        if not os.path.exists(image_path):
+            print("Image file not found.")
+            return
+        text = input("Enter the text to hide: ").strip()
+        output_path = input("Enter the output file path (e.g., output_image.png): ").strip()
+        embed_text(image_path, text, output_path)
     elif choice == "2":
         # Extract text
-        image_path = input("Enter the path to the image: ")
+        image_path = input("Enter the path to the image: ").strip()
+        if not os.path.exists(image_path):
+            print("Image file not found.")
+            return
         extract_text(image_path)
     else:
-        print("Invalid choice. Exiting.")
+        print("Invalid choice. Please try again.")
+
 
 if __name__ == "__main__":
     main()
